@@ -82,7 +82,7 @@ def sort():
     channel_section_id: str | None = None
     desired_section_name = CONFIG.get(ConfigKey.SECTION_NAME)
     for section in sections:
-        if section["name"] == desired_section_name:
+        if section["name"].lower() == desired_section_name.lower():
             channel_section_id = section["channel_section_id"]
 
             for channel_id in section["channel_ids_page"].get("channel_ids", []):
