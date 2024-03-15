@@ -26,8 +26,6 @@ to this tool.
 > - _Slack client refresh:_ some users report that running the manager causes
 >   their desktop slack client to fully reload. This may be related to
 >   user-level themes.
-> - _Channel section re-creation attempts:_ some users reported attempts to
->   re-create the managed section when it already exists.
 
 ## ⚠️ avoid Slack account takeovers
 
