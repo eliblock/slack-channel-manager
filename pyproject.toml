@@ -19,7 +19,7 @@ selenium = "^4.16.0"
 optional = true
 
 [tool.poetry.group.dev.dependencies]
-black = "^23.3.0"
+black = "^24.3.0"
 
 [build-system]
 requires = ["poetry-core"]
