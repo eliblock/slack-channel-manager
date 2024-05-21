@@ -12,7 +12,7 @@ manager = "slack_channel_manager.cli:cli"
 [tool.poetry.dependencies]
 python = "^3.11"
 click = "^8.1.7"
-requests = "^2.31.0"
+requests = "^2.32.0"
 selenium = "^4.16.0"
 
 [tool.poetry.group.dev]
