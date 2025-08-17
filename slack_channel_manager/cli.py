@@ -3,7 +3,6 @@
 import functools
 import json
 import re
-import time
 
 import click
 
@@ -125,7 +124,6 @@ def sort():
         ]
 
         if not page_target_channels:
-            time.sleep(0.25)  # slack has rate limits, let's naively wait a bit
             continue
 
         # Add the channels to the section
@@ -153,10 +151,9 @@ def sort():
         )
         channels_moved += len(page_target_channels)
 
-        time.sleep(0.25)  # slack has rate limits, let's naively wait a bit
-
-    click.echo(
-        f"Moved {channels_moved} channels to '{desired_section_name}' section (some may have already been assigned)"
+    click.secho(
+        f"Moved {channels_moved} channels to '{desired_section_name}' section (some may have already been assigned)",
+        fg="green",
     )
 
 

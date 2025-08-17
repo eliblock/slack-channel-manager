@@ -3,6 +3,7 @@ import re
 import time
 from urllib.parse import urlparse
 
+import click
 import requests
 from selenium import webdriver
 
@@ -55,8 +56,9 @@ def fetch_d_cookie(subdomain: str) -> str:
 def _slack_raise_for_status(response: requests.Response):
     response.raise_for_status()
     if not response.json()["ok"]:
-        print(response.request.body)
-        print(response.text)
+        click.secho(f"Request path: {response.request.path_url}", fg="yellow", err=True)
+        click.secho(f"Request body: {response.request.body}", fg="yellow", err=True)
+        click.secho(f"Response body: {response.text}", fg="red", err=True)
 
         raise Exception("non-OK slack response")
 
@@ -69,42 +71,44 @@ class SlackRequestClient:
         self.session.cookies["d"] = cookie
         self.session.headers["Authorization"] = f"Bearer {token}"
 
-    def get(self, path: str, **kwargs) -> dict:
+    def _make_slack_request(
+        self, method: str, path: str, **kwargs
+    ) -> requests.Response:
         assert path and path[0] == "/"
+        url = f"https://{self.subdomain}.slack.com{path}"
 
-        response = self.session.get(
-            f"https://{self.subdomain}.slack.com{path}", **kwargs
-        )
+        while True:
+            response = self.session.request(method, url, **kwargs)
+            try:
+                _slack_raise_for_status(response)
+                return response
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 429:
+                    retry_after = int(e.response.headers.get("Retry-After", 1))
+                    click.secho(
+                        f"Rate limit hit. Retrying after {retry_after} seconds...",
+                        fg="yellow",
+                    )
+                    time.sleep(retry_after)
+                else:
+                    raise
 
-        _slack_raise_for_status(response)
-        return response.json()
+    def get(self, path: str, **kwargs) -> dict:
+        return self._make_slack_request("GET", path, **kwargs).json()
 
     def paginated_get(self, path: str, **kwargs) -> dict:
-        assert path and path[0] == "/" and "?" in path
+        assert path and "?" in path
 
-        response = self.session.get(
-            f"https://{self.subdomain}.slack.com{path}", **kwargs
-        )
-        _slack_raise_for_status(response)
+        response = self._make_slack_request("GET", path, **kwargs)
 
         while cursor := response.json().get("response_metadata", {}).get("next_cursor"):
             yield response.json()
 
-            response = self.session.get(
-                f"https://{self.subdomain}.slack.com{path}&cursor={cursor}", **kwargs
+            response = self._make_slack_request(
+                "GET", f"{path}&cursor={cursor}", **kwargs
             )
-            _slack_raise_for_status(response)
 
         return response.json()
 
     def post(self, path: str, data: list[tuple], **kwargs) -> dict:
-        assert path and path[0] == "/"
-
-        response = self.session.post(
-            f"https://{self.subdomain}.slack.com{path}",
-            data,
-            **kwargs,
-        )
-        _slack_raise_for_status(response)
-
-        return response.json()
+        return self._make_slack_request("POST", path, data=data, **kwargs).json()
