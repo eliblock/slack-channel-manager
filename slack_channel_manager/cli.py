@@ -10,7 +10,7 @@ from slack_channel_manager.config import ConfigKey, ConfigManager, reload_config
 from slack_channel_manager.slack import (
     SlackRequestClient,
     fetch_d_cookie,
-    get_slack_token,
+    get_slack_tokens,
 )
 
 ################################################################################
@@ -24,12 +24,14 @@ CONFIG = ConfigManager()
 ################################################################################
 @functools.lru_cache()
 def get_slack_client() -> "SlackRequestClient":
+    token, enterprise_token = get_slack_tokens(
+        subdomain=CONFIG.get(ConfigKey.SUBDOMAIN),
+        d_cookie=CONFIG.get(ConfigKey.D_COOKIE),
+    )
     return SlackRequestClient(
         subdomain=CONFIG.get(ConfigKey.SUBDOMAIN),
-        token=get_slack_token(
-            subdomain=CONFIG.get(ConfigKey.SUBDOMAIN),
-            d_cookie=CONFIG.get(ConfigKey.D_COOKIE),
-        ),
+        token=token,
+        enterprise_token=enterprise_token,
         cookie=CONFIG.get(ConfigKey.D_COOKIE),
     )
 

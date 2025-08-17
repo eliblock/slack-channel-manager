@@ -12,9 +12,9 @@ from selenium import webdriver
 # Helpers
 ################################################################################
 @functools.lru_cache()
-def get_slack_token(subdomain: str, d_cookie: str):
+def get_slack_tokens(subdomain: str, d_cookie: str) -> tuple[str, str]:
     """
-    Get a session token based on the d cookie.
+    Get session token and enterprise session tokenbased on the d cookie.
     https://papermtn.co.uk/retrieving-and-using-slack-cookies-for-authentication
     """
     response = requests.get(
@@ -29,7 +29,13 @@ def get_slack_token(subdomain: str, d_cookie: str):
 
     api_token = match.group(1)
 
-    return api_token
+    match = re.search(r'"enterprise_api_token":"([^"]+)"', response.text)
+    if not match:
+        raise ValueError("No enterprise_api_token found in response")
+
+    enterprise_api_token = match.group(1)
+
+    return api_token, enterprise_api_token
 
 
 def fetch_d_cookie(subdomain: str) -> str:
@@ -64,7 +70,8 @@ def _slack_raise_for_status(response: requests.Response):
 
 
 class SlackRequestClient:
-    def __init__(self, subdomain: str, token: str, cookie: str):
+    def __init__(self, subdomain: str, token: str, enterprise_token: str, cookie: str):
+        self.enterprise_token = enterprise_token
         self.subdomain = subdomain
 
         self.session = requests.session()
@@ -111,4 +118,5 @@ class SlackRequestClient:
         return response.json()
 
     def post(self, path: str, data: list[tuple], **kwargs) -> dict:
+        data.append(("token", self.enterprise_token))
         return self._make_slack_request("POST", path, data=data, **kwargs).json()
