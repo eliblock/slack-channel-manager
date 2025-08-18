@@ -125,7 +125,7 @@ def sort():
     # Page through all available channels once
     total_channels_moved = 0
     for page in client.paginated_get(
-        "/api/conversations.list?exclude_archived=true&types=public_channel&limit=1000"
+        "/api/conversations.list?exclude_archived=true&types=public_channel%2Cprivate_channel&limit=10000"
     ):
         # Group channels by target section
         section_channels = {section.section_id: [] for section in sections}
