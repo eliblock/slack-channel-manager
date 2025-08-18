@@ -5,14 +5,14 @@
 
 # Setup your environment
 brew install chromedriver --cask
-poetry install
+uv sync
 
 # Configure the tool
-poetry run manager configure # follow the prompts
-poetry run manager hey # should greet you by name
+uv run manager configure # follow the prompts
+uv run manager hey # should greet you by name
 
 # Sort!
-poetry run manager sort
+uv run manager sort
 ```
 
 This tool relies on several Slack APIs which do not appear in the slack API
@@ -44,7 +44,7 @@ This tool can be run in a cron to auto-sort your channels every few minutes.
 at least once locally.** To test your setup, run:
 
 ```sh
-bin/run-in-poetry.sh
+bin/run-in-uv.sh
 ```
 
 ...if you see a successful output, you may proceed.
@@ -53,5 +53,5 @@ To configure the cron, edit your crontab file (`crontab -e`) to include an entry
 like:
 
 ```txt
-*/5 * * * * <absolute-path-to-this-repo>/bin/run-in-poetry.sh >>~/cron-stdout.log 2>>~/cron-stderr.log
+*/5 * * * * <absolute-path-to-this-repo>/bin/run-in-uv.sh >>~/cron-stdout.log 2>>~/cron-stderr.log
 ```

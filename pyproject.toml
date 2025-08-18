@@ -1,26 +1,30 @@
-[tool.poetry]
+[project]
 name = "slack-channel-manager"
 version = "0.1.0"
 description = "sort your slack channels in code"
-authors = ["Eli Block <3347571+eliblock@users.noreply.github.com>"]
-license = "MIT"
+authors = [{name = "Eli Block", email = "3347571+eliblock@users.noreply.github.com"}]
+license = {text = "MIT"}
 readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "click>=8.1.7",
+    "requests>=2.31.0",
+    "selenium>=4.16.0",
+]
 
-[tool.poetry.scripts]
+[project.scripts]
 manager = "slack_channel_manager.cli:cli"
 
-[tool.poetry.dependencies]
-python = "^3.11"
-click = "^8.1.7"
-requests = "^2.31.0"
-selenium = "^4.16.0"
-
-[tool.poetry.group.dev]
-optional = true
-
-[tool.poetry.group.dev.dependencies]
-black = "^23.3.0"
+[project.optional-dependencies]
+dev = [
+    "black>=23.3.0",
+]
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = [
+    "black>=23.3.0",
+]
