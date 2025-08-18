@@ -2,11 +2,16 @@
 
 import functools
 import json
-import re
+from typing import Any
 
 import click
 
-from slack_channel_manager.config import ConfigKey, ConfigManager, reload_config
+from slack_channel_manager.config import (
+    ChannelSectionConfig,
+    ConfigKey,
+    ConfigManager,
+    reload_config,
+)
 from slack_channel_manager.slack import (
     SlackRequestClient,
     fetch_d_cookie,
@@ -75,86 +80,96 @@ def hey():
 def sort():
     client = get_slack_client()
 
-    # Ensure the section exists (and get its ID)
+    # Ensure the sections exist (and get their IDs)
     # This API is undocumented. It appears to be paginated, but the mechanics
     # are unclear, and most users will have only one page of sections anyway.
-    sections = client.get("/api/users.channelSections.list")["channel_sections"]
+    slack_sections = client.get("/api/users.channelSections.list")["channel_sections"]
+
     channel_id_to_section_id: dict[str, str] = {}
-    channel_section_id: str | None = None
-    desired_section_name = CONFIG.get(ConfigKey.SECTION_NAME)
-    for section in sections:
-        if section["name"].lower() == desired_section_name.lower():
-            channel_section_id = section["channel_section_id"]
+    section_name_to_section: dict[str, dict[str, Any]] = {}
+    for section in slack_sections:
+        section_name_to_section[section["name"].lower().strip()] = section
+        for channel_id in section["channel_ids_page"].get("channel_ids", []):
+            channel_id_to_section_id[channel_id] = section["channel_section_id"]
 
-            for channel_id in section["channel_ids_page"].get("channel_ids", []):
-                # It is unclear how to fetch _additional_ pages of channel_ids,
-                # but the first page should be sufficient for most users.
-                channel_id_to_section_id[channel_id] = channel_section_id
+    # Get configured sections and ensure they exist
+    sections = [
+        ChannelSectionConfig(**section_data)
+        for section_data in CONFIG.get(ConfigKey.SECTIONS)
+    ]
+    for section_config in sections:
+        channel_section_id = section_name_to_section.get(
+            section_config.section_name.lower().strip(), {}
+        ).get("channel_section_id")
 
-    if not channel_section_id:
-        # Create the section
-        # This API is undocumented.
-        channel_section_id = client.post(
-            "/api/users.channelSections.create",
-            data=[
-                ("name", desired_section_name),
-                ("emoji", CONFIG.get(ConfigKey.SECTION_EMOJI)),
-            ],
-        )["channel_section_id"]
-        click.echo(f"Created '{desired_section_name}' section: {channel_section_id}")
-        click.echo(
-            "Slack defaults new sections to the very bottom of your sidebar. Reposition it as desired in the Slack client."
-        )
+        # Create the section if it doesn't exist
+        if not channel_section_id:
+            channel_section_id = client.post(
+                "/api/users.channelSections.create",
+                data=[
+                    ("name", section_config.section_name),
+                    ("emoji", section_config.section_emoji),
+                ],
+            )["channel_section_id"]
+            click.secho(
+                f"Created '{section_config.section_name}' section: {channel_section_id}",
+                fg="green",
+            )
+            click.secho(
+                "Slack defaults new sections to the very bottom of your sidebar, below DMs, boths, etc. Reposition it as desired in the Slack client.",
+                fg="yellow",
+            )
 
-    channel_regex = re.compile(CONFIG.get(ConfigKey.CHANNEL_REGEX))
+        section_config.section_id = channel_section_id
 
-    # Page through all available channels, moving any which meet the following
-    # criteria to the target section:
-    # * they are not already in a section
-    # * you are in them
-    # * they match the target regex
-    channels_moved: int = 0
+    # Page through all available channels once
+    total_channels_moved = 0
     for page in client.paginated_get(
         "/api/conversations.list?exclude_archived=true&types=public_channel&limit=1000"
     ):
-        page_target_channels = [
-            channel
-            for channel in page["channels"]
-            if channel["is_member"]
-            and not channel_id_to_section_id.get(channel["id"])
-            and channel_regex.match(channel["name"])
-        ]
+        # Group channels by target section
+        section_channels = {section.section_id: [] for section in sections}
 
-        if not page_target_channels:
-            continue
+        for channel in page["channels"]:
+            if not channel["is_member"] or channel_id_to_section_id.get(channel["id"]):
+                continue
 
-        # Add the channels to the section
-        # This API is undocumented.
-        click.echo(
-            f"Moving channels to '{desired_section_name}' section: {[channel['name'] for channel in page_target_channels]}"
-        )
-        client.post(
-            "/api/users.channelSections.channels.bulkUpdate",
-            data=[
-                (
-                    "insert",
-                    json.dumps(
-                        [
-                            {
-                                "channel_section_id": channel_section_id,
-                                "channel_ids": [
-                                    channel["id"] for channel in page_target_channels
-                                ],
-                            }
-                        ]
-                    ),
-                )
-            ],
-        )
-        channels_moved += len(page_target_channels)
+            for section_config in sections:
+                if section_config.compiled_regex.match(channel["name"]):
+                    section_channels[section_config.section_id].append(channel)
+                    break
+
+        # Bulk update each section that has channels to move
+        for section_config in sections:
+            channels_to_move = section_channels[section_config.section_id]
+            if not channels_to_move:
+                continue
+
+            click.echo(
+                f"Moving channels to '{section_config.section_name}' section: {[channel['name'] for channel in channels_to_move]}"
+            )
+            client.post(
+                "/api/users.channelSections.channels.bulkUpdate",
+                data=[
+                    (
+                        "insert",
+                        json.dumps(
+                            [
+                                {
+                                    "channel_section_id": section_config.section_id,
+                                    "channel_ids": [
+                                        channel["id"] for channel in channels_to_move
+                                    ],
+                                }
+                            ]
+                        ),
+                    )
+                ],
+            )
+            total_channels_moved += len(channels_to_move)
 
     click.secho(
-        f"Moved {channels_moved} channels to '{desired_section_name}' section (some may have already been assigned)",
+        f"Moved {total_channels_moved} channels across all sections",
         fg="green",
     )
 

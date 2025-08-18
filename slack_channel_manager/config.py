@@ -1,5 +1,6 @@
 import json
 import re
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Callable
@@ -7,11 +8,31 @@ from typing import Callable
 import click
 
 
+@dataclass
+class ChannelSectionConfig:
+    section_name: str
+    section_emoji: str
+    channel_regex: str
+    compiled_regex: re.Pattern = field(init=False)
+    _section_id: str = field(init=False, default=None)
+    
+    def __post_init__(self):
+        self.compiled_regex = re.compile(self.channel_regex)
+    
+    @property
+    def section_id(self) -> str:
+        if self._section_id is None:
+            raise ValueError("section_id has not been set")
+        return self._section_id
+    
+    @section_id.setter
+    def section_id(self, value: str) -> None:
+        self._section_id = value
+
+
 class ConfigKey(Enum):
     SUBDOMAIN = "slack_subdomain"
-    SECTION_NAME = "slack_channel_section_name"
-    SECTION_EMOJI = "slack_channel_section_emoji"
-    CHANNEL_REGEX = "slack_channel_regex"
+    SECTIONS = "slack_channel_sections"
     D_COOKIE = "slack_d_cookie"
 
 
@@ -39,7 +60,22 @@ class ConfigManager:
 
     def is_configured(self) -> bool:
         """Check if the config file has all the required keys."""
-        return all(key.value in self.data for key in ConfigKey)
+        if not all(key.value in self.data for key in ConfigKey):
+            return False
+
+        # Check that sections list exists and has at least one valid section
+        sections = self.data.get(ConfigKey.SECTIONS.value, [])
+        if len(sections) < 1:
+            return False
+
+        # Validate each section can be parsed as ChannelSectionConfig
+        try:
+            for section_data in sections:
+                ChannelSectionConfig(**section_data)
+        except (TypeError, ValueError):
+            return False
+
+        return True
 
     def get(self, key: ConfigKey, default: any = None, required: bool = True) -> any:
         """Retrieve a value from the config. Differs from standard gets in that it errors on missing values by default."""
@@ -86,45 +122,97 @@ def reload_config(
         raise ValueError("Invalid subdomain")
     config.upsert(ConfigKey.SUBDOMAIN, subdomain)
 
-    section_name = (
-        click.prompt(
-            "Name of section for grouped channels (e.g., 'incidents')",
-            type=str,
-            default=config.get(ConfigKey.SECTION_NAME, "incidents"),
-            show_default=True,
-        )
-        .strip()
-        .lower()
+    # Load and validate existing sections
+    existing_sections_data = (
+        config.get(ConfigKey.SECTIONS, default=[], required=False) or []
     )
-    if " " in section_name:
-        raise ValueError("Invalid section name")
-    config.upsert(ConfigKey.SECTION_NAME, section_name)
+    valid_sections = []
 
-    section_emoji = (
-        click.prompt(
-            "Emoji for section for grouped channels (e.g., 'fire' for :fire:)",
-            type=str,
-            default=config.get(ConfigKey.SECTION_EMOJI, "fire"),
-            show_default=True,
-        )
-        .strip()
-        .lower()
-    )
-    if " " in section_emoji:
-        raise ValueError("Invalid section emoji")
-    config.upsert(ConfigKey.SECTION_EMOJI, section_emoji)
+    for section_data in existing_sections_data:
+        try:
+            valid_sections.append(ChannelSectionConfig(**section_data))
+        except (TypeError, ValueError) as e:
+            click.secho(
+                f"Removing corrupt section: {section_data} (error: {e})", fg="red"
+            )
 
-    channel_regex = click.prompt(
-        "Regex for channels to sort (e.g., '^inc-', can be partial match)",
-        type=str,
-        default=config.get(ConfigKey.CHANNEL_REGEX, "^inc-"),
-        show_default=True,
-    )
-    try:
-        re.compile(channel_regex)
-    except re.error:
-        raise ValueError("Invalid regex")
-    config.upsert(ConfigKey.CHANNEL_REGEX, channel_regex)
+    # Show existing valid sections
+    if valid_sections:
+        click.echo("\nExisting sections:")
+        for i, section in enumerate(valid_sections, 1):
+            click.echo(
+                f"  {i}. {section.section_name} :{section.section_emoji}: (regex: {section.channel_regex})"
+            )
+        click.secho(f"To remove sections, edit {config.file_path}", fg="red")
+
+    if click.confirm("Do you want to configure a new section?"):
+        new_sections = []
+        while True:
+            click.echo(f"\nConfiguring new section {len(new_sections) + 1}:")
+
+            section_name = (
+                click.prompt(
+                    "Name of section for grouped channels (e.g., 'incidents')",
+                    type=str,
+                    default="incidents"
+                    if len(valid_sections + new_sections) == 0
+                    else None,
+                    show_default=len(valid_sections + new_sections) == 0,
+                )
+                .strip()
+                .lower()
+            )
+            if " " in section_name:
+                raise ValueError("Invalid section name")
+
+            section_emoji = (
+                click.prompt(
+                    "Emoji for section for grouped channels (e.g., 'fire' for :fire:)",
+                    type=str,
+                    default="fire" if len(valid_sections + new_sections) == 0 else None,
+                    show_default=len(valid_sections + new_sections) == 0,
+                )
+                .strip()
+                .lower()
+            )
+            if " " in section_emoji:
+                raise ValueError("Invalid section emoji")
+
+            channel_regex = click.prompt(
+                "Regex for channels to sort (e.g., '^inc-', can be partial match)",
+                type=str,
+                default="^inc-" if len(valid_sections + new_sections) == 0 else None,
+                show_default=len(valid_sections + new_sections) == 0,
+            )
+            try:
+                re.compile(channel_regex)
+            except re.error:
+                raise ValueError("Invalid regex")
+
+            new_sections.append(
+                ChannelSectionConfig(
+                    section_name=section_name,
+                    section_emoji=section_emoji,
+                    channel_regex=channel_regex,
+                )
+            )
+
+            if not click.confirm("Do you want to configure another section?"):
+                break
+
+        # Combine existing and new sections
+        all_sections = valid_sections + new_sections
+        config.upsert(
+            ConfigKey.SECTIONS,
+            [
+                {
+                    "section_name": section.section_name,
+                    "section_emoji": section.section_emoji,
+                    "channel_regex": section.channel_regex,
+                }
+                for section in all_sections
+            ],
+        )
 
     if not config.get(ConfigKey.D_COOKIE, required=False) or click.confirm(
         "Re-authenticate to Slack?"
