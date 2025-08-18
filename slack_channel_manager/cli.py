@@ -116,7 +116,7 @@ def sort():
                 fg="green",
             )
             click.secho(
-                "Slack defaults new sections to the very bottom of your sidebar, below DMs, boths, etc. Reposition it as desired in the Slack client.",
+                "Slack defaults new sections to the very bottom of your sidebar, below DMs, bots, etc. Reposition it as desired in the Slack client.",
                 fg="yellow",
             )
 
